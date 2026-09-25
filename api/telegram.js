@@ -5,7 +5,7 @@
 
 const { sendMessage, sendChatAction } = require('../lib/telegram');
 const { buildNewsQuery, draftPost } = require('../lib/gemini');
-const { searchNews } = require('../lib/news');
+const { searchNews, keywordQuery } = require('../lib/news');
 
 const HELP_TEXT =
   'Send me a note as a text message and I will turn it into a draft post in your voice.';
@@ -73,43 +73,60 @@ async function handleMessage(message) {
   }
 
   await sendChatAction(chatId, 'typing');
-  const newsItems = await findNews(text);
-  const draft = await draftPost(text, newsItems);
-  await sendMessage(chatId, addSources(draft, newsItems), message.message_id);
+  const news = await findNews(text);
+  const draft = await draftPost(text, news.items);
+  await sendMessage(chatId, addSources(draft, news), message.message_id);
 }
 
-// News is a bonus: if the lookup fails or finds nothing, draft without it.
+// A failed news lookup never blocks the draft; the reply says what happened instead.
 async function findNews(note) {
+  let query = null;
   try {
-    const query = await buildNewsQuery(note);
-    if (!query) return [];
-    return await searchNews(query);
+    query = await buildNewsQuery(note);
   } catch (err) {
-    console.warn('News lookup failed, drafting without news:', err.message);
-    return [];
+    console.warn('News query from Gemini failed, using keywords from the note:', err.message);
+  }
+  query = query || keywordQuery(note);
+  if (!query) return { query, items: [] };
+
+  try {
+    return { query, items: await searchNews(query) };
+  } catch (err) {
+    console.warn('Google News lookup failed:', err.message);
+    return { query, items: [], error: err.message };
   }
 }
 
-// Keeps only the [n] markers that match a real headline and appends those
-// sources, so every link in the reply comes straight from Google News.
-function addSources(draft, newsItems) {
+// Every reply ends with a sources section. Cited headlines come first; if the
+// draft cites none, the top headlines are listed as related news; if the
+// lookup found nothing, the reply says so. All links come straight from
+// Google News, and [n] markers that don't match a headline are removed.
+function addSources(draft, { query, items, error }) {
   const cited = new Set();
   const body = draft.replace(/\s?\[(\d+)\]/g, (marker, n) => {
     const index = Number(n);
-    if (index < 1 || index > newsItems.length) return '';
+    if (index < 1 || index > items.length) return '';
     cited.add(index);
     return marker;
   });
-  if (!cited.size) return body;
 
-  const sources = [...cited]
-    .sort((a, b) => a - b)
-    .map((index) => {
-      const item = newsItems[index - 1];
-      const meta = [item.publisher, item.date].filter(Boolean).join(', ');
-      return `[${index}] ${item.title}${meta ? ` (${meta})` : ''}\n${item.link}`;
-    });
-  return `${body}\n\nSources\n${sources.join('\n\n')}`;
+  if (cited.size) {
+    const sources = [...cited].sort((a, b) => a - b).map((index) => formatSource(items[index - 1], index));
+    return `${body}\n\nSources\n${sources.join('\n\n')}`;
+  }
+  if (items.length) {
+    const related = items.slice(0, 3).map((item, i) => formatSource(item, i + 1));
+    return `${body}\n\nRelated news (not cited in the draft)\n${related.join('\n\n')}`;
+  }
+  const reason = error
+    ? `the Google News lookup failed (${error})`
+    : `Google News had no results for "${query}"`;
+  return `${body}\n\nSources: none, because ${reason}.`;
+}
+
+function formatSource(item, number) {
+  const meta = [item.publisher, item.date].filter(Boolean).join(', ');
+  return `[${number}] ${item.title}${meta ? ` (${meta})` : ''}\n${item.link}`;
 }
 
 function isAllowedChat(chatId) {

@@ -49,12 +49,18 @@ No npm dependencies: it uses Node's built-in `fetch`.
 
 ## News and citations
 
-For every note, Gemini first writes a short search query. The bot then pulls up to 6 headlines from the last 30 days from Google News RSS (Indian English edition by default; change it with `NEWS_REGION` and `NEWS_LANGUAGE`). Gemini sees the numbered headlines and cites any it uses as `[1]`, `[2]`, and the bot adds a **Sources** list with the headline, publisher, date and link.
+For every note, Gemini first writes a broad 2-3 word search query (if that fails, the bot uses keywords from the note). The bot searches Google News RSS with three variants at once (the query over the last 30 days, its first two words over 30 days, and the query over the last year) and keeps up to 6 headlines from the first variant with results. It uses the Indian English edition by default; change it with `NEWS_REGION` and `NEWS_LANGUAGE`. Gemini sees the numbered headlines and cites any it uses as `[1]`, `[2]`.
 
-- The Sources list is built by the code, not by Gemini, so every link is a real Google News result. Numbers Gemini makes up are removed.
+Every reply ends with one of:
+- **Sources**: the headlines the draft cites.
+- **Related news (not cited in the draft)**: the top 3 headlines, when the draft cites none.
+- **Sources: none, because ...**: when the search found nothing or failed, with the reason.
+
+Notes:
+- The sources are built by the code, not by Gemini, so every link is a real Google News result. Numbers Gemini makes up are removed.
 - Gemini only sees headlines, not the full articles, so it is told to claim no more than the headline says. Check a source before posting.
 - Links go through `news.google.com` and open the publisher's article.
-- If the lookup fails or nothing relevant turns up, the draft is written without news.
+- If the lookup fails or finds nothing, the draft is still written, and the reply says why there are no sources.
 
 ## Troubleshooting
 
