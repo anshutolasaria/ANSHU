@@ -4,7 +4,8 @@
 // we send the note + voice instructions to Gemini -> reply with the draft.
 
 const { sendMessage, sendChatAction } = require('../lib/telegram');
-const { draftPost } = require('../lib/gemini');
+const { buildNewsQuery, draftPost } = require('../lib/gemini');
+const { searchNews } = require('../lib/news');
 
 const HELP_TEXT =
   'Send me a note as a text message and I will turn it into a draft post in your voice.';
@@ -37,7 +38,7 @@ module.exports = async function handler(req, res) {
     try {
       await sendMessage(
         message.chat.id,
-        'Sorry, something went wrong while writing that draft. Please try sending the note again.',
+        `Sorry, something went wrong while writing that draft.\n\nError: ${err.message}`,
         message.message_id
       );
     } catch (notifyErr) {
@@ -72,8 +73,43 @@ async function handleMessage(message) {
   }
 
   await sendChatAction(chatId, 'typing');
-  const draft = await draftPost(text);
-  await sendMessage(chatId, draft, message.message_id);
+  const newsItems = await findNews(text);
+  const draft = await draftPost(text, newsItems);
+  await sendMessage(chatId, addSources(draft, newsItems), message.message_id);
+}
+
+// News is a bonus: if the lookup fails or finds nothing, draft without it.
+async function findNews(note) {
+  try {
+    const query = await buildNewsQuery(note);
+    if (!query) return [];
+    return await searchNews(query);
+  } catch (err) {
+    console.warn('News lookup failed, drafting without news:', err.message);
+    return [];
+  }
+}
+
+// Keeps only the [n] markers that match a real headline and appends those
+// sources, so every link in the reply comes straight from Google News.
+function addSources(draft, newsItems) {
+  const cited = new Set();
+  const body = draft.replace(/\s?\[(\d+)\]/g, (marker, n) => {
+    const index = Number(n);
+    if (index < 1 || index > newsItems.length) return '';
+    cited.add(index);
+    return marker;
+  });
+  if (!cited.size) return body;
+
+  const sources = [...cited]
+    .sort((a, b) => a - b)
+    .map((index) => {
+      const item = newsItems[index - 1];
+      const meta = [item.publisher, item.date].filter(Boolean).join(', ');
+      return `[${index}] ${item.title}${meta ? ` (${meta})` : ''}\n${item.link}`;
+    });
+  return `${body}\n\nSources\n${sources.join('\n\n')}`;
 }
 
 function isAllowedChat(chatId) {

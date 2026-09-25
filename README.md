@@ -16,6 +16,7 @@ No npm dependencies: it uses Node's built-in `fetch`.
 | `api/telegram.js` | Webhook endpoint (the Vercel function) |
 | `lib/gemini.js` | Builds the prompt and calls Gemini |
 | `lib/telegram.js` | Sends replies to Telegram |
+| `lib/news.js` | Looks up recent headlines on Google News RSS |
 | `prompts/voice-instructions.md` | **Paste Meera's voice instructions here** |
 | `scripts/set-webhook.js` | One-time script that connects the bot to your deployment |
 | `.env.example` | List of environment variables |
@@ -31,7 +32,7 @@ No npm dependencies: it uses Node's built-in `fetch`.
    - `TELEGRAM_WEBHOOK_SECRET`: any long random string (A–Z, a–z, 0–9, `_`, `-`)
    - `GEMINI_API_KEY`
    - `ALLOWED_CHAT_IDS`: leave empty for now, you fill it in at step 7
-   - `GEMINI_MODEL` (optional, default `gemini-2.5-flash`)
+   - `GEMINI_MODEL` (optional, default `gemini-3.8-flash`)
 
    Redeploy after adding them, because env var changes only apply to new deployments.
 6. **Connect the webhook.** Copy `.env.example` to `.env`, fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` (use the same values as in Vercel), then run:
@@ -45,6 +46,15 @@ No npm dependencies: it uses Node's built-in `fetch`.
    You should see `"ok":true`.
 7. **Authorize Meera.** Meera messages the bot, and it replies with her chat ID. Put that ID in `ALLOWED_CHAT_IDS` in Vercel and redeploy. Separate multiple IDs with commas, for example to add your own for testing.
 8. Meera sends a note and gets a draft back.
+
+## News and citations
+
+For every note, Gemini first writes a short search query. The bot then pulls up to 6 headlines from the last 30 days from Google News RSS (Indian English edition by default; change it with `NEWS_REGION` and `NEWS_LANGUAGE`). Gemini sees the numbered headlines and cites any it uses as `[1]`, `[2]`, and the bot adds a **Sources** list with the headline, publisher, date and link.
+
+- The Sources list is built by the code, not by Gemini, so every link is a real Google News result. Numbers Gemini makes up are removed.
+- Gemini only sees headlines, not the full articles, so it is told to claim no more than the headline says. Check a source before posting.
+- Links go through `news.google.com` and open the publisher's article.
+- If the lookup fails or nothing relevant turns up, the draft is written without news.
 
 ## Troubleshooting
 
